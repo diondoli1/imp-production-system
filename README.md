@@ -1,78 +1,145 @@
 # IMP CNC Production Tracking Prototype
 
-Phase 6 backend AI analysis module for a single-machine CNC tracking demo.
+Single-machine CNC production tracking prototype for a HAAS VF2 demo cell.
 
-Machine ID is fixed to:
+Fixed machine ID:
 `HAAS_VF2_01`
 
-## Scope in this phase
+## Non-negotiable constraints
 
-- SQLite models for:
-  - `machines`
-  - `operators`
-  - `jobs`
-  - `machine_events`
-  - `machine_state`
-  - `scrap_reports`
-  - `ai_reports`
-- Startup table initialization and seed data:
-  - machine `HAAS_VF2_01`
-  - operators `OP_001`, `OP_002`, `OP_003`
-  - jobs `JOB_201`, `JOB_202`, `JOB_203`
-- Hybrid event/state core backend flow
-  - event persistence in `machine_events`
-  - current state persistence in `machine_state`
-  - produced count updates on `part_completed`
-  - scrap count updates on `scrap_reported`
-- Backend cycle flow support:
-  - setup start
-  - setup confirm
-  - cycle start
-  - cycle complete (part counted)
-- Scrap event recording endpoint
-- Operator login/logout flow:
-  - login by `operator_name + pin`
-  - logout by `operator_id`
-  - active operator tracked in `machine_state.active_operator_id`
-  - operator events persisted in `machine_events`
-- Dashboard read endpoints:
-  - summary view for current state/job/operator/counts
-  - recent machine event history for timeline views
-- WebSocket live updates:
-  - endpoint: `/ws`
-  - broadcasts on machine state changes, new events, produced count changes, scrap count changes
-  - broadcasts `ai_report_created` when AI report hooks create reports
-- AI analysis module:
-  - deterministic, backend-read-only analysis from machine state/history
-  - downtime analysis output
-  - scrap analysis output
-  - production summary output
-  - operator question/answer output
-  - every output persisted in `ai_reports`
-  - no machine control and no production state/count mutations
+- Single-machine scope only.
+- Backend is source of truth.
+- AI is analysis-only.
+- AI never controls machine behavior.
+- Simulator behavior is operator-triggered only.
 
-## Run locally
+## Tech stack
 
-1. Create and activate a Python virtual environment.
-2. Install dependencies:
+- Backend: FastAPI + SQLite + SQLAlchemy
+- Frontend: React + Vite
+- Realtime: WebSocket (`/ws`)
+- AI layer: deterministic analysis + optional OpenAI-backed reason suggestion
+
+## Current capabilities
+
+- Role-based login (`OPERATOR`, `SUPERVISOR`)
+- Operator workflow:
+  - job selection
+  - drawing open event + embedded PDF viewer
+  - setup/start/pause/resume/alarm/clear/part-complete/finish controls
+  - notes + scrap reporting
+- Supervisor workflow:
+  - machine status and active context
+  - KPI cards
+  - completed jobs table
+  - add-job form
+  - shift timeline
+  - AI insight actions
+- Event-driven backend with machine state persistence
+- WebSocket broadcasts for machine, events, counts, and AI reports
+
+## Repository layout
+
+```text
+backend/
+frontend/
+docs/
+requirements.txt
+ws_test.py
+.env.example
+```
+
+## Quick start
+
+### 1) Backend
 
 ```bash
 pip install -r requirements.txt
-```
-
-3. Run the backend:
-
-```bash
+copy .env.example .env
 uvicorn backend.main:app --reload
 ```
 
-4. Verify endpoints:
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/health`
+Backend URL:
+`http://127.0.0.1:8000`
 
-## Phase 5 WebSocket endpoint
+Health check:
+`http://127.0.0.1:8000/health`
 
-- `GET /ws` (WebSocket upgrade)
+### 2) Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend default URL (Vite):
+`http://127.0.0.1:5173`
+
+## Demo credentials
+
+- Operator: `Albert` / `1111`
+- Operator: `Ardin` / `2222`
+- Operator: `Demo Operator` / `3333`
+- Supervisor: `Valdrin` / `4444`
+
+## Drawing files
+
+Served by backend static route:
+- `/drawings/support_plate.pdf`
+- `/drawings/mounting_bracket.pdf`
+- `/drawings/machined_shaft.pdf`
+
+Opening a drawing via API logs a `drawing_opened` event.
+
+## API overview
+
+### Auth / Operators
+- `POST /api/login`
+- `POST /api/operators/login`
+- `POST /api/operators/logout`
+
+### Jobs
+- `GET /api/jobs`
+- `POST /api/jobs`
+- `POST /api/jobs/select`
+- `POST /api/jobs/finish`
+- `GET /api/jobs/{job_id}/drawing`
+- `GET /api/jobs/completed/today`
+
+### Machine
+- `GET /api/machine/state`
+- `GET /api/machine/events?limit=50`
+- `POST /api/machine/setup/start`
+- `POST /api/machine/setup/confirm`
+- `POST /api/machine/cycle/start`
+- `POST /api/machine/cycle/pause`
+- `POST /api/machine/cycle/resume`
+- `POST /api/machine/cycle/complete`
+- `POST /api/machine/alarm/trigger`
+- `POST /api/machine/alarm/clear`
+
+### Production
+- `POST /api/production/note`
+- `POST /api/production/scrap`
+- `GET /api/production/counts`
+
+### Dashboard
+- `GET /api/dashboard/summary`
+- `GET /api/dashboard/events?limit=50`
+- `GET /api/dashboard/timeline`
+
+### AI (analysis-only)
+- `POST /api/ai/reason-suggest`
+- `POST /api/ai/summary`
+- `POST /api/ai/downtime-analysis`
+- `POST /api/ai/scrap-analysis`
+- `POST /api/ai/question`
+
+## WebSocket contract
+
+Endpoint:
+`ws://127.0.0.1:8000/ws`
 
 Broadcast message types:
 - `machine_state_updated`
@@ -81,129 +148,37 @@ Broadcast message types:
 - `scrap_count_updated`
 - `ai_report_created`
 
-Example payloads:
+## WebSocket smoke script
 
-```json
-{
-  "type": "machine_state_updated",
-  "machine_id": "HAAS_VF2_01",
-  "current_state": "RUNNING",
-  "active_job_id": "JOB_201",
-  "active_operator_id": "OP_001",
-  "produced_count": 3,
-  "scrap_count": 1,
-  "updated_at": "2026-03-07T12:00:00"
-}
+`ws_test.py` now triggers `POST /api/ai/summary` and waits for `ai_report_created`.
+
+Run:
+
+```bash
+python ws_test.py
 ```
 
-```json
-{
-  "type": "event_created",
-  "machine_id": "HAAS_VF2_01",
-  "event": {
-    "event_id": 15,
-    "timestamp": "2026-03-07T12:00:02",
-    "event_type": "part_completed",
-    "machine_state": "RUNNING",
-    "job_id": "JOB_201",
-    "operator_id": "OP_001",
-    "reason_code": null,
-    "details": {
-      "produced_count": 3
-    }
-  }
-}
+Expected output includes:
+- `trigger_status=200`
+- one or more websocket payloads
+- `ai_report_created_report_id=<id>`
+
+## Phase 8 demo checklist
+
+See:
+`docs/PHASE8_DEMO_CHECKLIST.md`
+
+Includes:
+- pre-demo readiness checklist
+- Scenario 1 validation (normal production)
+- Scenario 2 validation (interrupted production)
+- presentation order
+- constraint compliance checks
+
+## Validation commands used during development
+
+```bash
+python -m compileall backend
+python -c "import backend.main as m; print('import-ok', m.app.title)"
+cd frontend && npm run build
 ```
-
-## Phase 6 AI endpoints
-
-AI:
-- `POST /api/ai/downtime-analysis`
-- `POST /api/ai/scrap-analysis`
-- `POST /api/ai/summary`
-- `POST /api/ai/question`
-
-## Phase 4 dashboard endpoints
-
-Dashboard:
-- `GET /api/dashboard/summary`
-- `GET /api/dashboard/events?limit=50`
-
-## Phase 3 operator endpoints
-
-Operators:
-- `POST /api/operators/login`
-- `POST /api/operators/logout`
-
-## Phase 2 API endpoints
-
-Jobs:
-- `GET /api/jobs`
-- `POST /api/jobs/select`
-
-Machine:
-- `GET /api/machine/state`
-- `GET /api/machine/events?limit=50`
-- `POST /api/machine/setup/start`
-- `POST /api/machine/setup/confirm`
-- `POST /api/machine/cycle/start`
-- `POST /api/machine/cycle/complete`
-
-Production:
-- `POST /api/production/scrap`
-- `GET /api/production/counts`
-
-
-## Manual flow example
-
-0. Operator login: `POST /api/operators/login`
-1. Select a job: `POST /api/jobs/select`
-2. Move to setup: `POST /api/machine/setup/start`
-3. Confirm setup (READY): `POST /api/machine/setup/confirm`
-4. Start cycle (RUNNING): `POST /api/machine/cycle/start`
-5. Complete one cycle / part: `POST /api/machine/cycle/complete`
-6. Record scrap if needed: `POST /api/production/scrap`
-7. Operator logout: `POST /api/operators/logout`
-
-## Environment
-
-Copy `.env.example` to `.env` and adjust values if needed.
-
-Important variables:
-- `DATABASE_PATH`
-- `FRONTEND_ORIGINS`
-- `BACKEND_HOST`
-- `BACKEND_PORT`
-
-## GitHub Approval-Only Workflow
-
-This repository is configured so changes flow through pull requests and approval gates.
-
-### What runs automatically
-- CI workflow: `.github/workflows/ci.yml`
-  - backend syntax compile check
-  - frontend production build check
-- PR checkpoint workflow: `.github/workflows/pr-checkpoints.yml`
-  - requires these PR checklist items to be checked:
-    - Scope approved
-    - File-change plan approved
-    - Test results approved
-    - Merge approved
-
-### Required GitHub settings (one-time)
-1. Open repository `Settings > Branches > Add branch protection rule` for `main`.
-2. Enable:
-   - Require a pull request before merging
-   - Require approvals
-   - Require review from Code Owners
-   - Require status checks to pass before merging
-3. Add required status checks:
-   - `backend-checks`
-   - `frontend-build`
-   - `checkpoint-gates`
-
-### Daily use
-1. Open a task/issue.
-2. Work happens on a branch and PR is opened.
-3. Review PR checkpoints and approve only when ready.
-4. Merge when all required checks and approvals are green.
