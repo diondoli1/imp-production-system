@@ -5,6 +5,7 @@ AI is analysis-only and must never control machine behavior.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.event_engine import EventEngine
 from backend.models import AIReport
 from backend.schemas import MACHINE_ID
+from backend.websocket.connection_manager import connection_manager
 
 
 class AIEngine:
@@ -147,7 +149,8 @@ class AIEngine:
         self.db.add(report)
         self.db.commit()
         self.db.refresh(report)
-        return {
+
+        payload = {
             "report_id": report.report_id,
             "report_type": report.report_type,
             "machine_id": report.machine_id,
@@ -156,3 +159,39 @@ class AIEngine:
             "output_text": report.output_text,
             "input_reference": report.input_reference or "{}",
         }
+        self._broadcast_ai_report(report)
+        return payload
+
+    def _broadcast_ai_report(self, report: AIReport) -> None:
+        payload = {
+            "type": "ai_report_created",
+            "machine_id": report.machine_id,
+            "report": {
+                "report_id": report.report_id,
+                "timestamp": report.timestamp.isoformat(),
+                "report_type": report.report_type,
+                "machine_id": report.machine_id,
+                "job_id": report.job_id,
+                "operator_id": report.operator_id,
+                "input_reference": self._decode_input_reference(report.input_reference),
+                "output_text": report.output_text,
+            },
+        }
+        self._schedule_broadcast(payload)
+
+    def _schedule_broadcast(self, payload: dict) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(connection_manager.broadcast_json(payload))
+            return
+        loop.create_task(connection_manager.broadcast_json(payload))
+
+    @staticmethod
+    def _decode_input_reference(input_reference: str | None) -> dict | str | None:
+        if input_reference is None:
+            return None
+        try:
+            return json.loads(input_reference)
+        except Exception:
+            return input_reference
