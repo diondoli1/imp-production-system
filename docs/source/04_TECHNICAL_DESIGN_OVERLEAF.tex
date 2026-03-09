@@ -1,0 +1,662 @@
+\documentclass[11pt]{article}
+
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+\title{IMP CNC Production Tracking Prototype}
+\author{Technical Design Review Document}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Project Purpose}
+This project is a working prototype of a digital CNC production tracking system for IMP.
+
+The system demonstrates how production tracking could function using a tablet interface, a simulated CNC machine, a supervisor dashboard, and AI-assisted analysis of production events.
+
+The prototype is intended to validate workflow design, architecture, and system behavior before any full production implementation is considered.
+
+The prototype simulates a single CNC production cell using:
+\begin{itemize}
+\item a simulated HAAS CNC machine
+\item a tablet-based operator interface
+\item a supervisor dashboard
+\item an event-driven backend system
+\item AI-assisted analysis of production activity
+\end{itemize}
+
+\section{Actual Business Problem}
+IMP currently operates multiple HAAS CNC machines used for machining production parts and spare components.
+
+The current workflow is manual:
+\begin{enumerate}
+\item Operators receive printed technical drawings for parts to be produced.
+\item During production, the operator writes the number of completed parts directly on the drawing.
+\item Scrap parts, machine downtime, and interruptions are typically not formally recorded.
+\item After production is completed, the printed drawing is placed in a folder for later review by management.
+\end{enumerate}
+
+Important production information is not systematically recorded:
+\begin{itemize}
+\item machine runtime
+\item machine idle time
+\item production interruptions
+\item scrap quantities
+\item operator interventions
+\item machine alarms
+\end{itemize}
+
+Management therefore lacks real-time visibility into production activity.
+
+\section{System Scope}
+The system is a prototype that simulates a single CNC production cell.
+
+Included:
+\begin{itemize}
+\item CNC machine simulator
+\item backend API server
+\item operator tablet interface
+\item supervisor dashboard
+\item event-based production tracking
+\item AI analysis module
+\end{itemize}
+
+Out of scope:
+\begin{itemize}
+\item direct integration with real CNC machines
+\item ERP integration
+\item multi-machine coordination
+\item production scheduling systems
+\item automated machine control
+\item predictive maintenance algorithms
+\end{itemize}
+
+The prototype focuses strictly on:
+\begin{itemize}
+\item operator workflow
+\item machine state tracking
+\item event-based production logging
+\item real-time monitoring
+\item AI-assisted data interpretation
+\end{itemize}
+
+\section{Stakeholders and Users}
+\subsection{Machine Operator}
+The operator is the primary user of the tablet interface.
+
+Operator responsibilities:
+\begin{itemize}
+\item log into the system
+\item select production jobs
+\item open technical drawings
+\item start machine setup
+\item start production cycles
+\item pause or resume production
+\item report scrap parts
+\item enter production notes
+\end{itemize}
+
+\subsection{Production Management}
+Production management uses the supervisor dashboard to observe:
+\begin{itemize}
+\item machine state
+\item production output
+\item interruptions
+\item event timelines
+\item AI-generated insights
+\end{itemize}
+
+\subsection{Technical Reviewer}
+Senior software developers may review:
+\begin{itemize}
+\item system architecture
+\item event model design
+\item database schema
+\item API design
+\item implementation strategy
+\end{itemize}
+
+\section{System Architecture}
+The system follows a modular architecture with four primary components:
+\begin{itemize}
+\item CNC Machine Simulator
+\item Backend API Server
+\item Operator Tablet Interface
+\item Supervisor Dashboard
+\end{itemize}
+
+The backend server acts as the central system controller.
+
+It is responsible for:
+\begin{itemize}
+\item receiving machine events
+\item storing production data
+\item managing machine state
+\item exposing API endpoints
+\item broadcasting real-time updates
+\item interacting with AI services
+\end{itemize}
+
+The CNC simulator represents a single HAAS CNC machine. Machine ID: \texttt{HAAS\_VF2\_01}
+
+The simulator is controlled through operator actions. It does not run as an uncontrolled autonomous machine.
+
+The frontend application provides two modes:
+\begin{itemize}
+\item operator interface
+\item supervisor dashboard
+\end{itemize}
+
+\section{Infrastructure and Runtime Environment}
+The prototype runs in a simple local development environment.
+
+Office PC hosts:
+\begin{itemize}
+\item FastAPI backend server
+\item SQLite database
+\item machine simulator
+\item AI integration module
+\end{itemize}
+
+Tablet connects through the local network using a browser.
+
+The frontend is a single web application served over LAN.
+
+This architecture is intentionally simple to support:
+\begin{itemize}
+\item fast development
+\item easy debugging
+\item low setup complexity
+\item realistic demo behavior
+\end{itemize}
+
+\section{Event Engine and Machine Event Model}
+The system uses a hybrid event architecture:
+\begin{itemize}
+\item full event log
+\item current machine state table
+\end{itemize}
+
+\subsection{Machine states}
+\begin{itemize}
+\item OFFLINE
+\item IDLE
+\item SETUP
+\item READY
+\item RUNNING
+\item PAUSED
+\item ALARM
+\item COMPLETED
+\end{itemize}
+
+After a job is completed, the machine briefly enters \texttt{COMPLETED} and then returns to \texttt{IDLE}.
+
+\subsection{Event types}
+Operator events:
+\begin{itemize}
+\item operator\_logged\_in
+\item operator\_logged\_out
+\item job\_selected
+\item drawing\_opened
+\item setup\_started
+\item setup\_confirmed
+\item cycle\_started
+\item cycle\_paused
+\item cycle\_resumed
+\item note\_added
+\item scrap\_reported
+\item job\_finished
+\end{itemize}
+
+Machine events:
+\begin{itemize}
+\item machine\_state\_changed
+\item part\_completed
+\item alarm\_triggered
+\item alarm\_cleared
+\item machine\_reset\_to\_idle
+\end{itemize}
+
+\subsection{Event schema}
+Every event contains:
+\begin{itemize}
+\item event\_id
+\item timestamp
+\item machine\_id
+\item event\_type
+\item machine\_state
+\item job\_id
+\item operator\_id
+\item reason\_code
+\item details
+\end{itemize}
+
+Production totals are derived from \texttt{part\_completed} events.
+
+\subsection{State transitions}
+Valid flow:
+\begin{itemize}
+\item OFFLINE $\rightarrow$ IDLE
+\item IDLE $\rightarrow$ SETUP
+\item SETUP $\rightarrow$ READY
+\item READY $\rightarrow$ RUNNING
+\item RUNNING $\rightarrow$ PAUSED
+\item PAUSED $\rightarrow$ RUNNING
+\item RUNNING $\rightarrow$ ALARM
+\item ALARM $\rightarrow$ READY
+\item RUNNING $\rightarrow$ COMPLETED
+\item COMPLETED $\rightarrow$ IDLE
+\end{itemize}
+
+Constraints:
+\begin{itemize}
+\item \texttt{part\_completed} only valid in \texttt{RUNNING}
+\item \texttt{cycle\_started} only valid from \texttt{READY}
+\item \texttt{cycle\_resumed} only valid from \texttt{PAUSED}
+\item \texttt{alarm\_cleared} only valid from \texttt{ALARM}
+\item \texttt{job\_finished} only valid when a job is active
+\item no direct \texttt{IDLE $\rightarrow$ RUNNING}
+\item no \texttt{SETUP $\rightarrow$ COMPLETED}
+\end{itemize}
+
+\subsection{Reason codes}
+Pause reason codes:
+\begin{itemize}
+\item TOOL\_CHANGE
+\item INSPECTION
+\item DRAWING\_REVIEW
+\item MATERIAL\_CHECK
+\item WAITING\_INSTRUCTIONS
+\item OPERATOR\_BREAK
+\end{itemize}
+
+Alarm reason codes:
+\begin{itemize}
+\item TOOL\_WEAR
+\item PROGRAM\_STOP
+\item FIXTURE\_ISSUE
+\item DIMENSION\_CHECK
+\item UNKNOWN\_FAULT
+\end{itemize}
+
+Scrap reason codes:
+\begin{itemize}
+\item DIMENSION\_OUT
+\item SURFACE\_DEFECT
+\item WRONG\_SETUP
+\item TOOL\_MARK
+\item OPERATOR\_ERROR
+\end{itemize}
+
+AI may suggest a reason code from operator notes, but the operator always confirms the final value.
+
+\section{Database Design}
+Database engine: \texttt{SQLite}
+
+Core tables:
+\begin{itemize}
+\item machines
+\item operators
+\item jobs
+\item machine\_events
+\item machine\_state
+\item scrap\_reports
+\item ai\_reports
+\end{itemize}
+
+\subsection{machines}
+Fields:
+\begin{itemize}
+\item machine\_id
+\item machine\_name
+\item machine\_type
+\item is\_active
+\item created\_at
+\end{itemize}
+
+\subsection{operators}
+Fields:
+\begin{itemize}
+\item operator\_id
+\item operator\_name
+\item pin
+\item is\_active
+\item created\_at
+\end{itemize}
+
+\subsection{jobs}
+Fields:
+\begin{itemize}
+\item job\_id
+\item part\_name
+\item material
+\item target\_quantity
+\item drawing\_file
+\item status
+\item created\_at
+\end{itemize}
+
+\subsection{machine\_events}
+Fields:
+\begin{itemize}
+\item event\_id
+\item timestamp
+\item machine\_id
+\item event\_type
+\item machine\_state
+\item job\_id
+\item operator\_id
+\item reason\_code
+\item details
+\end{itemize}
+
+\subsection{machine\_state}
+Fields:
+\begin{itemize}
+\item machine\_id
+\item current\_state
+\item active\_job\_id
+\item active\_operator\_id
+\item produced\_count
+\item scrap\_count
+\item last\_event\_id
+\item updated\_at
+\end{itemize}
+
+\subsection{scrap\_reports}
+Fields:
+\begin{itemize}
+\item scrap\_id
+\item timestamp
+\item machine\_id
+\item job\_id
+\item operator\_id
+\item quantity
+\item reason\_code
+\item note
+\end{itemize}
+
+\subsection{ai\_reports}
+Fields:
+\begin{itemize}
+\item report\_id
+\item timestamp
+\item machine\_id
+\item job\_id
+\item operator\_id
+\item report\_type
+\item input\_reference
+\item output\_text
+\end{itemize}
+
+Design principle:
+\begin{itemize}
+\item event log preserves history
+\item machine\_state supports fast UI updates
+\item scrap\_reports keeps scrap structured
+\item ai\_reports preserves AI traceability
+\end{itemize}
+
+\section{API Design}
+The backend exposes:
+\begin{itemize}
+\item REST API endpoints
+\item WebSocket live updates
+\end{itemize}
+
+REST responsibilities:
+\begin{itemize}
+\item operator login/logout
+\item job selection/finish
+\item drawing access
+\item machine setup/cycle/alarm control
+\item scrap reporting
+\item note submission
+\item dashboard data
+\item AI requests
+\end{itemize}
+
+WebSocket responsibilities:
+\begin{itemize}
+\item machine state changes
+\item produced count changes
+\item scrap count changes
+\item new event creation
+\item AI report creation
+\end{itemize}
+
+Operator login must use:
+\begin{itemize}
+\item operator name
+\item PIN
+\end{itemize}
+
+Drawings are referenced by file path, not stored as binary in DB.
+
+Alarm trigger must be manually available from the demo.
+
+\section{AI Responsibilities and Limits}
+AI acts as an analysis and assistance layer only.
+
+AI responsibilities:
+\begin{itemize}
+\item operator note structuring
+\item reason code suggestion
+\item production summary generation
+\item natural-language question answering
+\item downtime analysis
+\end{itemize}
+
+AI inputs:
+\begin{itemize}
+\item machine event history
+\item operator notes
+\item scrap reports
+\item machine state transitions
+\item job information
+\end{itemize}
+
+AI must never:
+\begin{itemize}
+\item change machine states
+\item trigger machine cycles
+\item start or stop production
+\item modify production counts
+\item create production jobs
+\item override operator decisions
+\end{itemize}
+
+All AI outputs are recommendations only and must be saved in \texttt{ai\_reports}.
+
+\section{Frontend System Design}
+The frontend is a single React application with two modes:
+\begin{itemize}
+\item Operator Interface
+\item Supervisor Dashboard
+\end{itemize}
+
+\subsection{Operator Interface}
+Features:
+\begin{itemize}
+\item operator login with name + PIN
+\item job selection
+\item drawing viewer
+\item machine control panel
+\item scrap reporting panel
+\item operator notes panel
+\end{itemize}
+
+Machine control buttons:
+\begin{itemize}
+\item Start Setup
+\item Confirm Setup
+\item Start Cycle
+\item Pause Cycle
+\item Resume Cycle
+\item Finish Job
+\end{itemize}
+
+\subsection{Supervisor Dashboard}
+Panels:
+\begin{itemize}
+\item machine status
+\item production metrics
+\item event timeline
+\item runtime metrics
+\item AI insight panel
+\end{itemize}
+
+Visual style:
+\begin{itemize}
+\item industrial / professional
+\item high contrast
+\item large buttons
+\item simple layout
+\item color-coded states
+\end{itemize}
+
+State colors:
+\begin{itemize}
+\item RUNNING = green
+\item PAUSED = yellow
+\item ALARM = red
+\item IDLE = gray
+\item SETUP = blue
+\end{itemize}
+
+Frontend uses WebSocket updates for immediate refreshes.
+
+\section{Demo Scenario and Presentation Flow}
+The demo uses two short production scenarios.
+
+\subsection{Scenario 1 — Normal Production}
+\begin{enumerate}
+\item operator login
+\item job selection
+\item drawing opened
+\item setup start
+\item setup confirm
+\item cycle start
+\item simulated part completion
+\item finish job
+\item machine goes COMPLETED then IDLE
+\end{enumerate}
+
+Example job:
+\begin{itemize}
+\item Support Plate
+\item Material: S355
+\item Target Quantity: 10
+\end{itemize}
+
+\subsection{Scenario 2 — Interrupted Production}
+\begin{enumerate}
+\item start second job
+\item run machine
+\item manually trigger alarm
+\item operator enters note
+\item AI suggests reason code
+\item clear alarm
+\item resume production
+\item report scrap
+\item run downtime analysis
+\end{enumerate}
+
+Example job:
+\begin{itemize}
+\item Mounting Bracket
+\item Material: Aluminum
+\item Target Quantity: 8
+\end{itemize}
+
+This demonstrates:
+\begin{itemize}
+\item digital operator workflow
+\item real-time machine visibility
+\item structured event logging
+\item scrap reporting
+\item AI-assisted analysis
+\end{itemize}
+
+\section{Project Implementation Plan}
+The prototype will be built using AI-assisted development.
+
+Technologies:
+\begin{itemize}
+\item Python
+\item FastAPI
+\item SQLite
+\item React
+\item WebSockets
+\item OpenAI API
+\item Git
+\item VS Code
+\item Node.js
+\item Python virtual environment
+\item npm
+\end{itemize}
+
+Development approach:
+\begin{enumerate}
+\item architecture definition
+\item event model design
+\item database schema design
+\item API specification
+\item AI feature definition
+\item frontend workflow definition
+\item modular code generation and integration
+\end{enumerate}
+
+Generate in modules, not as one monolithic app.
+
+Modules:
+\begin{itemize}
+\item database models
+\item backend API foundation
+\item event engine
+\item machine simulator
+\item operator routes
+\item production routes
+\item AI engine
+\item WebSocket update system
+\item frontend operator interface
+\item frontend dashboard
+\end{itemize}
+
+Development phases:
+\begin{enumerate}
+\item Backend foundation
+\item Event engine and simulator
+\item Operator interface
+\item Supervisor dashboard
+\item AI features
+\item Demo preparation
+\end{enumerate}
+
+Use Git and commit after each completed module.
+
+Success criteria:
+\begin{itemize}
+\item operator login with name and PIN
+\item job selection and drawing display
+\item machine state transitions
+\item automatic part completion simulation
+\item pause and alarm handling
+\item scrap reporting
+\item real-time dashboard updates
+\item AI-generated operational insights
+\end{itemize}
+
+\end{document}
