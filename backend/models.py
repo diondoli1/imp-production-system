@@ -27,6 +27,7 @@ class Operator(Base):
     operator_id: Mapped[str] = mapped_column(String(50), primary_key=True)
     operator_name: Mapped[str] = mapped_column(String(100), nullable=False)
     pin: Mapped[str] = mapped_column(String(20), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="OPERATOR")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -39,7 +40,15 @@ class Job(Base):
     material: Mapped[str] = mapped_column(String(80), nullable=False)
     target_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     drawing_file: Mapped[str] = mapped_column(String(255), nullable=False)
+    planned_cycle_time_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    produced_quantity_final: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    scrap_quantity_final: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completed_by_operator_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("operators.operator_id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

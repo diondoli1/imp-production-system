@@ -28,7 +28,20 @@ class JobRead(BaseModel):
     material: str
     target_quantity: int
     drawing_file: str
+    planned_cycle_time_sec: int | None = None
     status: str
+    completed_at: datetime | None = None
+    produced_quantity_final: int | None = None
+    scrap_quantity_final: int | None = None
+    completed_by_operator_id: str | None = None
+
+
+class JobCreateRequest(BaseModel):
+    part_name: str
+    material: str
+    target_quantity: int = Field(ge=1)
+    drawing_file: str
+    planned_cycle_time_sec: int | None = Field(default=None, ge=1)
 
 
 class JobSelectRequest(BaseModel):
@@ -84,6 +97,11 @@ class OperatorLogoutRequest(BaseModel):
     operator_id: str
 
 
+class LoginRequest(BaseModel):
+    operator_name: str
+    pin: str
+
+
 class DashboardSummaryResponse(BaseModel):
     machine_id: str
     current_state: str
@@ -95,6 +113,32 @@ class DashboardSummaryResponse(BaseModel):
     scrap_count: int
     last_event_id: int | None
     updated_at: datetime
+
+
+class CompletedJobRow(BaseModel):
+    completed_at: datetime
+    job_id: str
+    part_name: str
+    produced_quantity_final: int
+    scrap_quantity_final: int
+    completed_by_operator_id: str | None
+    completed_by_operator_name: str | None
+
+
+class CompletedJobsTodayResponse(BaseModel):
+    machine_id: str
+    jobs_completed_today: int
+    parts_produced_today: int
+    scrap_today: int
+    jobs: list[CompletedJobRow]
+
+
+class TimelineSegment(BaseModel):
+    state: str
+    start: datetime
+    end: datetime
+    duration_sec: int
+    reason_code: str | None = None
 
 
 class AIAnalysisRequest(BaseModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -67,6 +67,17 @@ class EventEngine:
     def get_machine_state(self) -> MachineState:
         return self.ensure_machine_state()
 
+    def authenticate_user(self, operator_name: str, pin: str) -> Operator:
+        stmt = select(Operator).where(
+            Operator.operator_name == operator_name,
+            Operator.pin == pin,
+            Operator.is_active.is_(True),
+        )
+        operator = self.db.scalar(stmt)
+        if operator is None:
+            raise EventEngineError("Invalid credentials")
+        return operator
+
     def get_recent_events(
         self,
         limit: int = 50,
@@ -123,6 +134,120 @@ class EventEngine:
             "updated_at": state.updated_at,
         }
 
+    def create_job(
+        self,
+        part_name: str,
+        material: str,
+        target_quantity: int,
+        drawing_file: str,
+        planned_cycle_time_sec: int | None,
+    ) -> Job:
+        if target_quantity <= 0:
+            raise EventEngineError("target_quantity must be > 0")
+
+        next_job_id = self._next_job_id()
+        job = Job(
+            job_id=next_job_id,
+            part_name=part_name,
+            material=material,
+            target_quantity=target_quantity,
+            drawing_file=drawing_file,
+            planned_cycle_time_sec=planned_cycle_time_sec,
+            status="PENDING",
+        )
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
+    def get_completed_jobs_today(self) -> dict:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+
+        stmt = (
+            select(Job)
+            .where(
+                Job.completed_at.is_not(None),
+                Job.completed_at >= today_start,
+                Job.completed_at < tomorrow_start,
+            )
+            .order_by(Job.completed_at.desc())
+        )
+        jobs = list(self.db.scalars(stmt))
+
+        rows: list[dict] = []
+        for job in jobs:
+            operator_name = None
+            if job.completed_by_operator_id:
+                operator = self.db.get(Operator, job.completed_by_operator_id)
+                if operator is not None:
+                    operator_name = operator.operator_name
+            rows.append(
+                {
+                    "completed_at": job.completed_at,
+                    "job_id": job.job_id,
+                    "part_name": job.part_name,
+                    "produced_quantity_final": int(job.produced_quantity_final or 0),
+                    "scrap_quantity_final": int(job.scrap_quantity_final or 0),
+                    "completed_by_operator_id": job.completed_by_operator_id,
+                    "completed_by_operator_name": operator_name,
+                }
+            )
+
+        return {
+            "machine_id": MACHINE_ID,
+            "jobs_completed_today": len(rows),
+            "parts_produced_today": sum(item["produced_quantity_final"] for item in rows),
+            "scrap_today": sum(item["scrap_quantity_final"] for item in rows),
+            "jobs": rows,
+        }
+
+    def get_timeline_segments(self) -> list[dict]:
+        events = list(
+            self.db.scalars(
+                select(MachineEvent)
+                .where(MachineEvent.machine_id == MACHINE_ID)
+                .order_by(MachineEvent.timestamp.asc(), MachineEvent.event_id.asc())
+            )
+        )
+        if not events:
+            return []
+
+        segments: list[dict] = []
+        current_state = events[0].machine_state
+        segment_start = events[0].timestamp
+        segment_reason = events[0].reason_code
+
+        for event in events[1:]:
+            if event.machine_state != current_state:
+                end = event.timestamp
+                duration_sec = max(0, int((end - segment_start).total_seconds()))
+                segments.append(
+                    {
+                        "state": current_state,
+                        "start": segment_start,
+                        "end": end,
+                        "duration_sec": duration_sec,
+                        "reason_code": segment_reason,
+                    }
+                )
+                current_state = event.machine_state
+                segment_start = event.timestamp
+                segment_reason = event.reason_code
+
+        now = datetime.utcnow()
+        duration_sec = max(0, int((now - segment_start).total_seconds()))
+        segments.append(
+            {
+                "state": current_state,
+                "start": segment_start,
+                "end": now,
+                "duration_sec": duration_sec,
+                "reason_code": segment_reason,
+            }
+        )
+        return segments
+
     def get_job_production_count(self, job_id: str) -> int:
         stmt = select(func.count(MachineEvent.event_id)).where(
             MachineEvent.machine_id == MACHINE_ID,
@@ -132,14 +257,7 @@ class EventEngine:
         return int(self.db.scalar(stmt) or 0)
 
     def login_operator(self, operator_name: str, pin: str) -> tuple[Operator, MachineState]:
-        stmt = select(Operator).where(
-            Operator.operator_name == operator_name,
-            Operator.pin == pin,
-            Operator.is_active.is_(True),
-        )
-        operator = self.db.scalar(stmt)
-        if operator is None:
-            raise EventEngineError("Invalid operator credentials")
+        operator = self.authenticate_user(operator_name, pin)
 
         state = self.ensure_machine_state()
         state.active_operator_id = operator.operator_id
@@ -364,6 +482,17 @@ class EventEngine:
         state.last_event_id = event.event_id
         state.updated_at = datetime.utcnow()
         return event
+
+    def _next_job_id(self) -> str:
+        existing_ids = list(self.db.scalars(select(Job.job_id)))
+        max_numeric = 200
+        for job_id in existing_ids:
+            if not job_id.startswith("JOB_"):
+                continue
+            suffix = job_id.split("JOB_", 1)[1]
+            if suffix.isdigit():
+                max_numeric = max(max_numeric, int(suffix))
+        return f"JOB_{max_numeric + 1}"
 
     def _broadcast_machine_state(self, state: MachineState) -> None:
         self._schedule_broadcast(

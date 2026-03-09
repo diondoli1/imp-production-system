@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.event_engine import EventEngine
-from backend.schemas import DashboardSummaryResponse, MachineEventResponse
+from backend.schemas import DashboardSummaryResponse, MachineEventResponse, TimelineSegment
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -12,6 +12,12 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryResponse:
     payload = EventEngine(db).get_dashboard_summary()
     return DashboardSummaryResponse(**payload)
+
+
+@router.get("/timeline", response_model=list[TimelineSegment])
+def get_dashboard_timeline(db: Session = Depends(get_db)) -> list[TimelineSegment]:
+    segments = EventEngine(db).get_timeline_segments()
+    return [TimelineSegment(**segment) for segment in segments]
 
 
 @router.get("/events", response_model=list[MachineEventResponse])

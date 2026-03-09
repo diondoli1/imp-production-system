@@ -40,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(operators.auth_router)
 app.include_router(operators.router)
 app.include_router(jobs.router)
 app.include_router(machine.router)

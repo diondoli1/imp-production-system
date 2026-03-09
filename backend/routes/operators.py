@@ -3,9 +3,36 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.event_engine import EventEngine, EventEngineError
-from backend.schemas import APIMessage, MACHINE_ID, OperatorLoginRequest, OperatorLogoutRequest
+from backend.schemas import APIMessage, LoginRequest, MACHINE_ID, OperatorLoginRequest, OperatorLogoutRequest
 
 router = APIRouter(prefix="/api/operators", tags=["operators"])
+auth_router = APIRouter(prefix="/api", tags=["auth"])
+
+
+@auth_router.post("/login", response_model=APIMessage)
+def app_login(payload: LoginRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        operator = engine.authenticate_user(payload.operator_name, payload.pin)
+        state = engine.get_machine_state()
+        if operator.role == "OPERATOR":
+            operator, state = engine.login_operator(payload.operator_name, payload.pin)
+    except EventEngineError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    route_hint = "/operator" if operator.role == "OPERATOR" else "/supervisor"
+    return APIMessage(
+        message="Login successful",
+        machine_id=MACHINE_ID,
+        data={
+            "operator_id": operator.operator_id,
+            "operator_name": operator.operator_name,
+            "role": operator.role,
+            "route_hint": route_hint,
+            "current_state": state.current_state,
+            "active_job_id": state.active_job_id,
+        },
+    )
 
 
 @router.post("/login", response_model=APIMessage)
@@ -21,6 +48,7 @@ def operator_login(payload: OperatorLoginRequest, db: Session = Depends(get_db))
         data={
             "operator_id": operator.operator_id,
             "operator_name": operator.operator_name,
+            "role": operator.role,
             "current_state": state.current_state,
             "active_job_id": state.active_job_id,
         },

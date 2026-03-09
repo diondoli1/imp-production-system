@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Generator
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 load_dotenv()
@@ -38,8 +38,39 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def _column_exists(session: Session, table_name: str, column_name: str) -> bool:
+    rows = session.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
+    return any(row["name"] == column_name for row in rows)
+
+
+def apply_startup_migrations() -> None:
+    session = SessionLocal()
+    try:
+        if not _column_exists(session, "operators", "role"):
+            session.execute(text("ALTER TABLE operators ADD COLUMN role TEXT NOT NULL DEFAULT 'OPERATOR'"))
+
+        job_columns = {
+            "planned_cycle_time_sec": "ALTER TABLE jobs ADD COLUMN planned_cycle_time_sec INTEGER",
+            "completed_at": "ALTER TABLE jobs ADD COLUMN completed_at DATETIME",
+            "produced_quantity_final": "ALTER TABLE jobs ADD COLUMN produced_quantity_final INTEGER",
+            "scrap_quantity_final": "ALTER TABLE jobs ADD COLUMN scrap_quantity_final INTEGER",
+            "completed_by_operator_id": "ALTER TABLE jobs ADD COLUMN completed_by_operator_id TEXT",
+        }
+        for column_name, statement in job_columns.items():
+            if not _column_exists(session, "jobs", column_name):
+                session.execute(text(statement))
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    apply_startup_migrations()
     seed_db()
 
 
@@ -61,12 +92,14 @@ def seed_db() -> None:
             )
 
         operators = [
-            {"operator_id": "OP_001", "operator_name": "Albert", "pin": "1111"},
-            {"operator_id": "OP_002", "operator_name": "Ardin", "pin": "2222"},
-            {"operator_id": "OP_003", "operator_name": "Demo Operator", "pin": "3333"},
+            {"operator_id": "OP_001", "operator_name": "Albert", "pin": "1111", "role": "OPERATOR"},
+            {"operator_id": "OP_002", "operator_name": "Ardin", "pin": "2222", "role": "OPERATOR"},
+            {"operator_id": "OP_003", "operator_name": "Demo Operator", "pin": "3333", "role": "OPERATOR"},
+            {"operator_id": "SUP_001", "operator_name": "Valdrin", "pin": "4444", "role": "SUPERVISOR"},
         ]
         for item in operators:
-            if session.get(Operator, item["operator_id"]) is None:
+            existing = session.get(Operator, item["operator_id"])
+            if existing is None:
                 session.add(Operator(**item, is_active=True))
 
         jobs = [
