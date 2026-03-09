@@ -1,9 +1,8 @@
-import React from "react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-import ModeSwitch from "./components/ModeSwitch";
-import OperatorPage from "./pages/OperatorPage";
 import DashboardPage from "./pages/DashboardPage";
+import LoginPage from "./pages/LoginPage";
+import OperatorPage from "./pages/OperatorPage";
 import { api } from "./services/api";
 import { connectWebSocket } from "./services/ws";
 
@@ -17,13 +16,33 @@ const DEFAULT_MACHINE_STATE = {
   updated_at: null,
 };
 
+const ALLOWED_PATHS = new Set(["/login", "/operator", "/supervisor"]);
+
+function normalizePath(pathname) {
+  if (!pathname || pathname === "/") {
+    return "/login";
+  }
+  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+}
+
 export default function App() {
-  const [mode, setMode] = useState("operator");
+  const [path, setPath] = useState(() => normalizePath(window.location.pathname));
   const [machineState, setMachineState] = useState(DEFAULT_MACHINE_STATE);
   const [jobs, setJobs] = useState([]);
   const [events, setEvents] = useState([]);
+  const [session, setSession] = useState(null);
   const [operatorSession, setOperatorSession] = useState(null);
   const [wsStatus, setWsStatus] = useState("disconnected");
+
+  function navigate(nextPath, replace = false) {
+    const target = normalizePath(nextPath);
+    if (replace) {
+      window.history.replaceState({}, "", target);
+    } else {
+      window.history.pushState({}, "", target);
+    }
+    setPath(target);
+  }
 
   async function refreshAll() {
     const [state, jobList, eventList] = await Promise.all([
@@ -35,6 +54,65 @@ export default function App() {
     setJobs(jobList);
     setEvents(eventList);
   }
+
+  async function handleLogin(name, pin) {
+    const result = await api.loginApp(name, pin);
+    const payload = result.data || {};
+    if (!payload.role || !payload.redirect_path) {
+      throw new Error("Invalid login response from backend");
+    }
+
+    setSession(payload);
+    if (payload.role === "OPERATOR") {
+      setOperatorSession({
+        operator_id: payload.operator_id,
+        operator_name: payload.operator_name || payload.name,
+      });
+    } else {
+      setOperatorSession(null);
+    }
+
+    navigate(payload.redirect_path);
+    await refreshAll();
+  }
+
+  async function handleLogout() {
+    if (operatorSession?.operator_id) {
+      try {
+        await api.logoutOperator(operatorSession.operator_id);
+      } catch {
+        // Keep logout UX resilient when operator session is already cleared server-side.
+      }
+    }
+    setSession(null);
+    setOperatorSession(null);
+    navigate("/login", true);
+    await refreshAll();
+  }
+
+  useEffect(() => {
+    const onPopState = () => {
+      setPath(normalizePath(window.location.pathname));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (!ALLOWED_PATHS.has(path)) {
+      navigate("/login", true);
+      return;
+    }
+
+    if (path === "/operator" && session?.role !== "OPERATOR") {
+      navigate("/login", true);
+      return;
+    }
+
+    if (path === "/supervisor" && session?.role !== "SUPERVISOR") {
+      navigate("/login", true);
+    }
+  }, [path, session]);
 
   useEffect(() => {
     refreshAll().catch(() => {});
@@ -80,11 +158,21 @@ export default function App() {
     <div className="app-shell">
       <header className="top-bar">
         <h1>IMP CNC Production Tracking Prototype</h1>
+        <div className="form-row">
+          <span>{session ? `${session.name} (${session.role})` : "Not logged in"}</span>
+          {session ? (
+            <button type="button" onClick={handleLogout}>
+              Logout
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      <ModeSwitch mode={mode} onChange={setMode} />
+      {path === "/login" ? (
+        <LoginPage onLogin={handleLogin} />
+      ) : null}
 
-      {mode === "operator" ? (
+      {path === "/operator" ? (
         <OperatorPage
           machineState={machineState}
           jobs={jobs}
@@ -93,9 +181,11 @@ export default function App() {
           setOperatorSession={setOperatorSession}
           refreshAll={refreshAll}
         />
-      ) : (
+      ) : null}
+
+      {path === "/supervisor" ? (
         <DashboardPage machineState={machineState} events={events} wsStatus={wsStatus} />
-      )}
+      ) : null}
     </div>
   );
 }

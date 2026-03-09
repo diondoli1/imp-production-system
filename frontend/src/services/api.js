@@ -13,6 +13,11 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  loginApp: (name, pin) =>
+    request("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ name, pin }),
+    }),
   loginOperator: (operator_name, pin) =>
     request("/api/operators/login", {
       method: "POST",
