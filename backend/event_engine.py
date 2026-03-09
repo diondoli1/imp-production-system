@@ -35,6 +35,31 @@ VALID_TRANSITIONS = {
     "COMPLETED": {"IDLE"},
 }
 
+PAUSE_REASON_CODES = {
+    "TOOL_CHANGE",
+    "INSPECTION",
+    "DRAWING_REVIEW",
+    "MATERIAL_CHECK",
+    "WAITING_INSTRUCTIONS",
+    "OPERATOR_BREAK",
+}
+
+ALARM_REASON_CODES = {
+    "TOOL_WEAR",
+    "PROGRAM_STOP",
+    "FIXTURE_ISSUE",
+    "DIMENSION_CHECK",
+    "UNKNOWN_FAULT",
+}
+
+SCRAP_REASON_CODES = {
+    "DIMENSION_OUT",
+    "SURFACE_DEFECT",
+    "WRONG_SETUP",
+    "TOOL_MARK",
+    "OPERATOR_ERROR",
+}
+
 
 class EventEngineError(Exception):
     pass
@@ -311,7 +336,7 @@ class EventEngine:
         previous_produced = state.produced_count
         previous_scrap = state.scrap_count
         state.active_job_id = job_id
-        state.active_operator_id = operator_id
+        state.active_operator_id = operator_id or state.active_operator_id
         state.produced_count = 0
         state.scrap_count = 0
         state.updated_at = datetime.utcnow()
@@ -321,7 +346,7 @@ class EventEngine:
             event_type="job_selected",
             machine_state=state.current_state,
             job_id=job_id,
-            operator_id=operator_id,
+            operator_id=state.active_operator_id,
             details={"message": "Job selected"},
         )
         self.db.commit()
@@ -332,6 +357,25 @@ class EventEngine:
         if previous_scrap != state.scrap_count:
             self._broadcast_scrap_count(state)
         return state
+
+    def open_drawing(self, job_id: str, operator_id: str | None = None) -> Job:
+        job = self.db.get(Job, job_id)
+        if job is None:
+            raise EventEngineError(f"Unknown job_id: {job_id}")
+
+        state = self.ensure_machine_state()
+        state.active_operator_id = operator_id or state.active_operator_id
+        state.updated_at = datetime.utcnow()
+        event = self._create_event(
+            event_type="drawing_opened",
+            machine_state=state.current_state,
+            job_id=job.job_id,
+            operator_id=state.active_operator_id,
+            details={"drawing_file": job.drawing_file},
+        )
+        self.db.commit()
+        self._broadcast_event_created(event)
+        return job
 
     def setup_start(self, operator_id: str | None = None) -> MachineState:
         return self._transition(
@@ -348,10 +392,53 @@ class EventEngine:
         )
 
     def cycle_start(self, operator_id: str | None = None) -> MachineState:
+        state = self.ensure_machine_state()
+        if not state.active_job_id:
+            raise EventEngineError("No active job selected")
         return self._transition(
             event_type="cycle_started",
             target_state="RUNNING",
             operator_id=operator_id,
+        )
+
+    def cycle_pause(
+        self,
+        reason_code: str,
+        operator_id: str | None = None,
+        note: str | None = None,
+    ) -> MachineState:
+        validated_reason = self._validate_reason_code(
+            reason_code=reason_code,
+            allowed_codes=PAUSE_REASON_CODES,
+            context="pause",
+            required=True,
+        )
+        return self._transition(
+            event_type="cycle_paused",
+            target_state="PAUSED",
+            operator_id=operator_id,
+            reason_code=validated_reason,
+            details={"note": note} if note else None,
+        )
+
+    def cycle_resume(
+        self,
+        operator_id: str | None = None,
+        reason_code: str | None = None,
+        note: str | None = None,
+    ) -> MachineState:
+        validated_reason = self._validate_reason_code(
+            reason_code=reason_code,
+            allowed_codes=PAUSE_REASON_CODES,
+            context="resume",
+            required=False,
+        )
+        return self._transition(
+            event_type="cycle_resumed",
+            target_state="RUNNING",
+            operator_id=operator_id,
+            reason_code=validated_reason,
+            details={"note": note} if note else None,
         )
 
     def cycle_complete(self, operator_id: str | None = None) -> MachineState:
@@ -379,6 +466,75 @@ class EventEngine:
             self._broadcast_produced_count(state)
         return state
 
+    def alarm_trigger(
+        self,
+        reason_code: str,
+        operator_id: str | None = None,
+        note: str | None = None,
+    ) -> MachineState:
+        validated_reason = self._validate_reason_code(
+            reason_code=reason_code,
+            allowed_codes=ALARM_REASON_CODES,
+            context="alarm",
+            required=True,
+        )
+        return self._transition(
+            event_type="alarm_triggered",
+            target_state="ALARM",
+            operator_id=operator_id,
+            reason_code=validated_reason,
+            details={"note": note} if note else None,
+        )
+
+    def alarm_clear(
+        self,
+        operator_id: str | None = None,
+        reason_code: str | None = None,
+        note: str | None = None,
+    ) -> MachineState:
+        validated_reason = self._validate_reason_code(
+            reason_code=reason_code,
+            allowed_codes=ALARM_REASON_CODES,
+            context="alarm_clear",
+            required=False,
+        )
+        return self._transition(
+            event_type="alarm_cleared",
+            target_state="READY",
+            operator_id=operator_id,
+            reason_code=validated_reason,
+            details={"note": note} if note else None,
+        )
+
+    def add_note(
+        self,
+        note: str,
+        operator_id: str | None = None,
+        reason_code: str | None = None,
+    ) -> MachineState:
+        cleaned_note = note.strip()
+        if not cleaned_note:
+            raise EventEngineError("Note must not be empty")
+
+        state = self.ensure_machine_state()
+        if not state.active_job_id:
+            raise EventEngineError("No active job selected")
+
+        state.active_operator_id = operator_id or state.active_operator_id
+        state.updated_at = datetime.utcnow()
+        event = self._create_event(
+            event_type="note_added",
+            machine_state=state.current_state,
+            job_id=state.active_job_id,
+            operator_id=state.active_operator_id,
+            reason_code=self._normalize_reason_code(reason_code),
+            details={"note": cleaned_note},
+        )
+        self.db.commit()
+        self.db.refresh(state)
+        self._broadcast_event_created(event)
+        return state
+
     def record_scrap(
         self,
         quantity: int,
@@ -388,6 +544,13 @@ class EventEngine:
     ) -> MachineState:
         if quantity <= 0:
             raise EventEngineError("Scrap quantity must be > 0")
+
+        validated_reason = self._validate_reason_code(
+            reason_code=reason_code,
+            allowed_codes=SCRAP_REASON_CODES,
+            context="scrap",
+            required=True,
+        )
 
         state = self.ensure_machine_state()
         if not state.active_job_id:
@@ -399,7 +562,7 @@ class EventEngine:
             job_id=state.active_job_id,
             operator_id=operator_id or state.active_operator_id,
             quantity=quantity,
-            reason_code=reason_code,
+            reason_code=validated_reason,
             note=note,
         )
         self.db.add(scrap)
@@ -412,7 +575,7 @@ class EventEngine:
             machine_state=state.current_state,
             job_id=state.active_job_id,
             operator_id=state.active_operator_id,
-            reason_code=reason_code,
+            reason_code=validated_reason,
             details={"quantity": quantity, "note": note},
         )
         self.db.commit()
@@ -421,6 +584,82 @@ class EventEngine:
         if previous_scrap != state.scrap_count:
             self._broadcast_scrap_count(state)
         return state
+
+    def finish_job(self, operator_id: str | None = None, note: str | None = None) -> tuple[MachineState, Job]:
+        state = self.ensure_machine_state()
+        if not state.active_job_id:
+            raise EventEngineError("No active job selected")
+
+        self._assert_transition(state.current_state, "COMPLETED")
+        completed_job_id = state.active_job_id
+        job = self.db.get(Job, completed_job_id)
+        if job is None:
+            raise EventEngineError(f"Unknown job_id: {completed_job_id}")
+
+        previous_produced = state.produced_count
+        previous_scrap = state.scrap_count
+
+        state.current_state = "COMPLETED"
+        state.active_operator_id = operator_id or state.active_operator_id
+        state.updated_at = datetime.utcnow()
+        finished_event = self._create_event(
+            event_type="job_finished",
+            machine_state="COMPLETED",
+            job_id=completed_job_id,
+            operator_id=state.active_operator_id,
+            details={
+                "note": note,
+                "produced_quantity_final": previous_produced,
+                "scrap_quantity_final": previous_scrap,
+            },
+        )
+
+        job.status = "COMPLETED"
+        job.completed_at = datetime.utcnow()
+        job.produced_quantity_final = previous_produced
+        job.scrap_quantity_final = previous_scrap
+        job.completed_by_operator_id = state.active_operator_id
+
+        self._schedule_broadcast(
+            {
+                "type": "machine_state_updated",
+                "machine_id": state.machine_id,
+                "current_state": "COMPLETED",
+                "active_job_id": completed_job_id,
+                "active_operator_id": state.active_operator_id,
+                "produced_count": previous_produced,
+                "scrap_count": previous_scrap,
+                "updated_at": state.updated_at.isoformat(),
+            }
+        )
+
+        self._assert_transition("COMPLETED", "IDLE")
+        state.current_state = "IDLE"
+        state.active_job_id = None
+        state.produced_count = 0
+        state.scrap_count = 0
+        state.updated_at = datetime.utcnow()
+        reset_event = self._create_event(
+            event_type="machine_reset_to_idle",
+            machine_state="IDLE",
+            job_id=None,
+            operator_id=state.active_operator_id,
+            details={"previous_job_id": completed_job_id},
+        )
+
+        self.db.commit()
+        self.db.refresh(state)
+        self.db.refresh(job)
+
+        self._broadcast_event_created(finished_event)
+        self._broadcast_event_created(reset_event)
+        self._broadcast_machine_state(state)
+        if previous_produced != state.produced_count:
+            self._broadcast_produced_count(state)
+        if previous_scrap != state.scrap_count:
+            self._broadcast_scrap_count(state)
+
+        return state, job
 
     def _transition(
         self,
@@ -435,9 +674,7 @@ class EventEngine:
 
         state = self.ensure_machine_state()
         previous_state = state.current_state
-        allowed = VALID_TRANSITIONS.get(state.current_state, set())
-        if target_state not in allowed:
-            raise InvalidTransitionError(f"Invalid transition {state.current_state} -> {target_state}")
+        self._assert_transition(previous_state, target_state)
 
         state.current_state = target_state
         state.active_operator_id = operator_id or state.active_operator_id
@@ -493,6 +730,34 @@ class EventEngine:
             if suffix.isdigit():
                 max_numeric = max(max_numeric, int(suffix))
         return f"JOB_{max_numeric + 1}"
+
+    def _assert_transition(self, current_state: str, target_state: str) -> None:
+        allowed = VALID_TRANSITIONS.get(current_state, set())
+        if target_state not in allowed:
+            raise InvalidTransitionError(f"Invalid transition {current_state} -> {target_state}")
+
+    def _normalize_reason_code(self, reason_code: str | None) -> str | None:
+        if reason_code is None:
+            return None
+        normalized = reason_code.strip().upper()
+        return normalized if normalized else None
+
+    def _validate_reason_code(
+        self,
+        reason_code: str | None,
+        allowed_codes: set[str],
+        context: str,
+        required: bool,
+    ) -> str | None:
+        normalized = self._normalize_reason_code(reason_code)
+        if normalized is None:
+            if required:
+                raise EventEngineError(f"{context} reason_code is required")
+            return None
+        if normalized not in allowed_codes:
+            allowed_values = ", ".join(sorted(allowed_codes))
+            raise EventEngineError(f"Invalid {context} reason_code '{normalized}'. Allowed: {allowed_values}")
+        return normalized
 
     def _broadcast_machine_state(self, state: MachineState) -> None:
         self._schedule_broadcast(

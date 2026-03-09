@@ -3,7 +3,14 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.event_engine import EventEngine, EventEngineError, InvalidTransitionError
-from backend.schemas import APIMessage, CycleRequest, MACHINE_ID, MachineEventResponse, MachineStateResponse
+from backend.schemas import (
+    APIMessage,
+    CycleRequest,
+    MACHINE_ID,
+    MachineActionRequest,
+    MachineEventResponse,
+    MachineStateResponse,
+)
 
 router = APIRouter(prefix="/api/machine", tags=["machine"])
 
@@ -92,6 +99,50 @@ def cycle_start(payload: CycleRequest, db: Session = Depends(get_db)) -> APIMess
     )
 
 
+@router.post("/cycle/pause", response_model=APIMessage)
+def cycle_pause(payload: MachineActionRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        state = engine.cycle_pause(
+            reason_code=payload.reason_code or "",
+            operator_id=payload.operator_id,
+            note=payload.note,
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EventEngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return APIMessage(
+        message="Cycle paused",
+        machine_id=MACHINE_ID,
+        data={
+            "current_state": state.current_state,
+            "active_job_id": state.active_job_id,
+            "reason_code": payload.reason_code,
+        },
+    )
+
+
+@router.post("/cycle/resume", response_model=APIMessage)
+def cycle_resume(payload: MachineActionRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        state = engine.cycle_resume(
+            operator_id=payload.operator_id,
+            reason_code=payload.reason_code,
+            note=payload.note,
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EventEngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return APIMessage(
+        message="Cycle resumed",
+        machine_id=MACHINE_ID,
+        data={"current_state": state.current_state, "active_job_id": state.active_job_id},
+    )
+
+
 @router.post("/cycle/complete", response_model=APIMessage)
 def cycle_complete(payload: CycleRequest, db: Session = Depends(get_db)) -> APIMessage:
     engine = EventEngine(db)
@@ -109,4 +160,50 @@ def cycle_complete(payload: CycleRequest, db: Session = Depends(get_db)) -> APIM
             "active_job_id": state.active_job_id,
             "produced_count": state.produced_count,
         },
+    )
+
+
+@router.post("/alarm/trigger", response_model=APIMessage)
+def alarm_trigger(payload: MachineActionRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        state = engine.alarm_trigger(
+            reason_code=payload.reason_code or "",
+            operator_id=payload.operator_id,
+            note=payload.note,
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EventEngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return APIMessage(
+        message="Alarm triggered",
+        machine_id=MACHINE_ID,
+        data={
+            "current_state": state.current_state,
+            "active_job_id": state.active_job_id,
+            "reason_code": payload.reason_code,
+        },
+    )
+
+
+@router.post("/alarm/clear", response_model=APIMessage)
+def alarm_clear(payload: MachineActionRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        state = engine.alarm_clear(
+            operator_id=payload.operator_id,
+            reason_code=payload.reason_code,
+            note=payload.note,
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EventEngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return APIMessage(
+        message="Alarm cleared",
+        machine_id=MACHINE_ID,
+        data={"current_state": state.current_state, "active_job_id": state.active_job_id},
     )

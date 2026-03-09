@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.event_engine import EventEngine, EventEngineError
-from backend.schemas import APIMessage, MACHINE_ID, ScrapCreateRequest
+from backend.schemas import APIMessage, MACHINE_ID, NoteCreateRequest, ScrapCreateRequest
 
 router = APIRouter(prefix="/api/production", tags=["production"])
 
@@ -27,6 +27,28 @@ def report_scrap(payload: ScrapCreateRequest, db: Session = Depends(get_db)) -> 
         data={
             "active_job_id": state.active_job_id,
             "scrap_count": state.scrap_count,
+            "current_state": state.current_state,
+        },
+    )
+
+
+@router.post("/note", response_model=APIMessage)
+def add_note(payload: NoteCreateRequest, db: Session = Depends(get_db)) -> APIMessage:
+    engine = EventEngine(db)
+    try:
+        state = engine.add_note(
+            note=payload.note,
+            operator_id=payload.operator_id,
+            reason_code=payload.reason_code,
+        )
+    except EventEngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return APIMessage(
+        message="Note recorded",
+        machine_id=MACHINE_ID,
+        data={
+            "active_job_id": state.active_job_id,
             "current_state": state.current_state,
         },
     )

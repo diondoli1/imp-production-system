@@ -49,6 +49,11 @@ class JobSelectRequest(BaseModel):
     operator_id: str | None = None
 
 
+class JobFinishRequest(BaseModel):
+    operator_id: str | None = None
+    note: str | None = None
+
+
 class MachineStateResponse(BaseModel):
     machine_id: str
     current_state: str
@@ -75,11 +80,23 @@ class CycleRequest(BaseModel):
     operator_id: str | None = None
 
 
+class MachineActionRequest(BaseModel):
+    operator_id: str | None = None
+    reason_code: str | None = None
+    note: str | None = None
+
+
 class ScrapCreateRequest(BaseModel):
     quantity: int = Field(ge=1)
     reason_code: str
     note: str | None = None
     operator_id: str | None = None
+
+
+class NoteCreateRequest(BaseModel):
+    note: str = Field(min_length=1)
+    operator_id: str | None = None
+    reason_code: str | None = None
 
 
 class APIMessage(BaseModel):
