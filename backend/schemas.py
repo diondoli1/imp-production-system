@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -156,6 +156,24 @@ class TimelineSegment(BaseModel):
     end: datetime
     duration_sec: int
     reason_code: str | None = None
+
+
+class ReasonSuggestRequest(BaseModel):
+    note: str = Field(min_length=1)
+    reason_group: Literal["PAUSE", "ALARM", "SCRAP"] = "ALARM"
+    job_id: str | None = None
+    operator_id: str | None = None
+
+
+class ReasonSuggestResponse(BaseModel):
+    report_id: int
+    machine_id: str
+    job_id: str | None
+    operator_id: str | None
+    reason_group: str
+    suggested_reason_code: str
+    explanation: str
+    source: str
 
 
 class AIAnalysisRequest(BaseModel):
