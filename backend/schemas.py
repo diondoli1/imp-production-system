@@ -1,0 +1,120 @@
+"""Schemas used by backend foundation and Phase 2 production engine."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+MACHINE_ID = "HAAS_VF2_01"
+
+
+class RootResponse(BaseModel):
+    message: str
+    machine_id: str
+    phase: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    machine_id: str
+    database: str
+
+
+class JobRead(BaseModel):
+    job_id: str
+    part_name: str
+    material: str
+    target_quantity: int
+    drawing_file: str
+    status: str
+
+
+class JobSelectRequest(BaseModel):
+    job_id: str
+    operator_id: str | None = None
+
+
+class MachineStateResponse(BaseModel):
+    machine_id: str
+    current_state: str
+    active_job_id: str | None
+    active_operator_id: str | None
+    produced_count: int
+    scrap_count: int
+    updated_at: datetime
+
+
+class MachineEventResponse(BaseModel):
+    event_id: int
+    timestamp: datetime
+    machine_id: str
+    event_type: str
+    machine_state: str
+    job_id: str | None
+    operator_id: str | None
+    reason_code: str | None
+    details: str | None
+
+
+class CycleRequest(BaseModel):
+    operator_id: str | None = None
+
+
+class ScrapCreateRequest(BaseModel):
+    quantity: int = Field(ge=1)
+    reason_code: str
+    note: str | None = None
+    operator_id: str | None = None
+
+
+class APIMessage(BaseModel):
+    message: str
+    machine_id: str = MACHINE_ID
+    data: dict[str, Any] | None = None
+
+
+class OperatorLoginRequest(BaseModel):
+    operator_name: str
+    pin: str
+
+
+class OperatorLogoutRequest(BaseModel):
+    operator_id: str
+
+
+class DashboardSummaryResponse(BaseModel):
+    machine_id: str
+    current_state: str
+    active_job_id: str | None
+    active_job_name: str | None
+    active_operator_id: str | None
+    active_operator_name: str | None
+    produced_count: int
+    scrap_count: int
+    last_event_id: int | None
+    updated_at: datetime
+
+
+class AIAnalysisRequest(BaseModel):
+    job_id: str | None = None
+    operator_id: str | None = None
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class AIQuestionRequest(BaseModel):
+    question: str
+    job_id: str | None = None
+    operator_id: str | None = None
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class AIAnalysisResponse(BaseModel):
+    report_id: int
+    report_type: str
+    machine_id: str
+    job_id: str | None
+    operator_id: str | None
+    output_text: str
+    input_reference: str
