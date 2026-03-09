@@ -152,5 +152,8 @@ def get_job_drawing(
         data={
             "job_id": job.job_id,
             "drawing_file": job.drawing_file,
+            "drawing_url": job.drawing_file,
         },
     )
+
+

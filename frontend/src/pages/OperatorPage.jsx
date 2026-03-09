@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import EventTimeline from "../components/EventTimeline";
 import MachineStatusBadge from "../components/MachineStatusBadge";
 import Panel from "../components/Panel";
+import PdfDrawingViewer from "../components/PdfDrawingViewer";
 import { MACHINE_ID } from "../constants";
 import { api } from "../services/api";
 
@@ -184,9 +185,12 @@ export default function OperatorPage({ machineState, jobs, events, operatorSessi
           <p>
             <strong>Active job:</strong> {activeJob ? `${activeJob.job_id} - ${activeJob.part_name}` : "-"}
           </p>
-          <p>
-            <strong>Drawing file:</strong> {activeJob?.drawing_file || "-"}
-          </p>
+          <PdfDrawingViewer
+            activeJob={activeJob}
+            operatorId={operatorId}
+            onStatus={setMessage}
+            refreshAll={refreshAll}
+          />
           <div className="form-row">
             <select value={selectedJob} onChange={(e) => setSelectedJob(e.target.value)}>
               <option value="">Select job</option>

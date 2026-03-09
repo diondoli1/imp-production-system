@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from backend import models  # noqa: F401 - ensures models module is loaded before init
@@ -47,6 +49,10 @@ app.include_router(machine.router)
 app.include_router(production.router)
 app.include_router(dashboard.router)
 app.include_router(ai.router)
+
+DRAWINGS_DIR = Path(__file__).resolve().parent / "drawings"
+DRAWINGS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/drawings", StaticFiles(directory=DRAWINGS_DIR), name="drawings")
 
 
 @app.on_event("startup")

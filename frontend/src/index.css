@@ -253,3 +253,45 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pdf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.pdf-frame {
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid var(--panel-border);
+  background: #0f1318;
+}
+
+.pdf-placeholder {
+  min-height: 220px;
+  border: 1px dashed var(--panel-border);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: #121820;
+  padding: 12px;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  .pdf-frame {
+    min-height: 420px;
+  }
+}
