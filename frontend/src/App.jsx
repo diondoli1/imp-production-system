@@ -184,7 +184,7 @@ export default function App() {
       ) : null}
 
       {path === "/supervisor" ? (
-        <DashboardPage machineState={machineState} events={events} wsStatus={wsStatus} />
+        <DashboardPage machineState={machineState} events={events} wsStatus={wsStatus} refreshAll={refreshAll} />
       ) : null}
     </div>
   );

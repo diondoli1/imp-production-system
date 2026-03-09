@@ -109,9 +109,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ note, reason_group, job_id, operator_id }),
     }),
-  getAIPlaceholder: () =>
-    request("/api/ai/placeholder-report", {
+  getAISummary: (payload = {}) =>
+    request("/api/ai/summary", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ limit: 100, ...payload }),
+    }),
+  getAIDowntimeAnalysis: (payload = {}) =>
+    request("/api/ai/downtime-analysis", {
+      method: "POST",
+      body: JSON.stringify({ limit: 100, ...payload }),
+    }),
+  getAIScrapAnalysis: (payload = {}) =>
+    request("/api/ai/scrap-analysis", {
+      method: "POST",
+      body: JSON.stringify({ limit: 100, ...payload }),
+    }),
+  askAIQuestion: (question, payload = {}) =>
+    request("/api/ai/question", {
+      method: "POST",
+      body: JSON.stringify({ question, limit: 100, ...payload }),
     }),
 };
