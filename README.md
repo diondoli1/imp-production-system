@@ -174,3 +174,36 @@ Important variables:
 - `FRONTEND_ORIGINS`
 - `BACKEND_HOST`
 - `BACKEND_PORT`
+
+## GitHub Approval-Only Workflow
+
+This repository is configured so changes flow through pull requests and approval gates.
+
+### What runs automatically
+- CI workflow: `.github/workflows/ci.yml`
+  - backend syntax compile check
+  - frontend production build check
+- PR checkpoint workflow: `.github/workflows/pr-checkpoints.yml`
+  - requires these PR checklist items to be checked:
+    - Scope approved
+    - File-change plan approved
+    - Test results approved
+    - Merge approved
+
+### Required GitHub settings (one-time)
+1. Open repository `Settings > Branches > Add branch protection rule` for `main`.
+2. Enable:
+   - Require a pull request before merging
+   - Require approvals
+   - Require review from Code Owners
+   - Require status checks to pass before merging
+3. Add required status checks:
+   - `backend-checks`
+   - `frontend-build`
+   - `checkpoint-gates`
+
+### Daily use
+1. Open a task/issue.
+2. Work happens on a branch and PR is opened.
+3. Review PR checkpoints and approve only when ready.
+4. Merge when all required checks and approvals are green.
