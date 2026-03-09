@@ -1,0 +1,33 @@
+name: PR Checkpoints
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - ready_for_review
+
+jobs:
+  checkpoint-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required checkpoint approvals
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request?.body || "";
+            const requiredChecks = [
+              "- [x] Scope approved",
+              "- [x] File-change plan approved",
+              "- [x] Test results approved",
+              "- [x] Merge approved"
+            ];
+
+            const missing = requiredChecks.filter((check) => !body.includes(check));
+            if (missing.length > 0) {
+              core.setFailed(
+                "Required PR checkpoints are not all approved. Missing: " + missing.join(", ")
+              );
+            }
