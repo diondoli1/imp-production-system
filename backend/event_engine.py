@@ -134,27 +134,37 @@ class EventEngine:
     def get_dashboard_summary(self) -> dict:
         state = self.ensure_machine_state()
         active_job_name = None
+        active_job_material = None
+        active_job_target_quantity = None
         active_operator_name = None
 
         if state.active_job_id:
             job = self.db.get(Job, state.active_job_id)
             if job is not None:
                 active_job_name = job.part_name
+                active_job_material = job.material
+                active_job_target_quantity = job.target_quantity
 
         if state.active_operator_id:
             operator = self.db.get(Operator, state.active_operator_id)
             if operator is not None:
                 active_operator_name = operator.operator_name
 
+        completed_today = self.get_completed_jobs_today()
         return {
             "machine_id": state.machine_id,
             "current_state": state.current_state,
             "active_job_id": state.active_job_id,
             "active_job_name": active_job_name,
+            "active_job_material": active_job_material,
+            "active_job_target_quantity": active_job_target_quantity,
             "active_operator_id": state.active_operator_id,
             "active_operator_name": active_operator_name,
             "produced_count": state.produced_count,
             "scrap_count": state.scrap_count,
+            "jobs_completed_today": completed_today["jobs_completed_today"],
+            "parts_produced_today": completed_today["parts_produced_today"],
+            "scrap_today": completed_today["scrap_today"],
             "last_event_id": state.last_event_id,
             "updated_at": state.updated_at,
         }
@@ -207,15 +217,22 @@ class EventEngine:
                 operator = self.db.get(Operator, job.completed_by_operator_id)
                 if operator is not None:
                     operator_name = operator.operator_name
+            produced = int(job.produced_quantity_final or 0)
+            scrap = int(job.scrap_quantity_final or 0)
             rows.append(
                 {
                     "completed_at": job.completed_at,
+                    "completed_time": job.completed_at,
                     "job_id": job.job_id,
+                    "job_name": job.part_name,
                     "part_name": job.part_name,
-                    "produced_quantity_final": int(job.produced_quantity_final or 0),
-                    "scrap_quantity_final": int(job.scrap_quantity_final or 0),
+                    "produced_quantity_final": produced,
+                    "produced": produced,
+                    "scrap_quantity_final": scrap,
+                    "scrap": scrap,
                     "completed_by_operator_id": job.completed_by_operator_id,
                     "completed_by_operator_name": operator_name,
+                    "operator_name": operator_name,
                 }
             )
 
@@ -249,6 +266,7 @@ class EventEngine:
                 duration_sec = max(0, int((end - segment_start).total_seconds()))
                 segments.append(
                     {
+                        "machine_id": MACHINE_ID,
                         "state": current_state,
                         "start": segment_start,
                         "end": end,
@@ -264,6 +282,7 @@ class EventEngine:
         duration_sec = max(0, int((now - segment_start).total_seconds()))
         segments.append(
             {
+                "machine_id": MACHINE_ID,
                 "state": current_state,
                 "start": segment_start,
                 "end": now,

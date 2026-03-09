@@ -60,6 +60,19 @@ def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> APIM
             "job_id": job.job_id,
             "part_name": job.part_name,
             "status": job.status,
+            "job": {
+                "job_id": job.job_id,
+                "part_name": job.part_name,
+                "material": job.material,
+                "target_quantity": job.target_quantity,
+                "drawing_file": job.drawing_file,
+                "planned_cycle_time_sec": job.planned_cycle_time_sec,
+                "status": job.status,
+                "completed_at": job.completed_at,
+                "produced_quantity_final": job.produced_quantity_final,
+                "scrap_quantity_final": job.scrap_quantity_final,
+                "completed_by_operator_id": job.completed_by_operator_id,
+            },
         },
     )
 

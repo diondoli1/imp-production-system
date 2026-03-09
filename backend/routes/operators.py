@@ -9,14 +9,22 @@ router = APIRouter(prefix="/api/operators", tags=["operators"])
 auth_router = APIRouter(prefix="/api", tags=["auth"])
 
 
+def _resolve_login_name(operator_name: str | None, name: str | None) -> str:
+    login_name = (operator_name or name or "").strip()
+    if not login_name:
+        raise HTTPException(status_code=422, detail="name is required")
+    return login_name
+
+
 @auth_router.post("/login", response_model=APIMessage)
 def app_login(payload: LoginRequest, db: Session = Depends(get_db)) -> APIMessage:
     engine = EventEngine(db)
+    login_name = _resolve_login_name(payload.operator_name, payload.name)
     try:
-        operator = engine.authenticate_user(payload.operator_name, payload.pin)
+        operator = engine.authenticate_user(login_name, payload.pin)
         state = engine.get_machine_state()
         if operator.role == "OPERATOR":
-            operator, state = engine.login_operator(payload.operator_name, payload.pin)
+            operator, state = engine.login_operator(login_name, payload.pin)
     except EventEngineError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
@@ -25,12 +33,17 @@ def app_login(payload: LoginRequest, db: Session = Depends(get_db)) -> APIMessag
         message="Login successful",
         machine_id=MACHINE_ID,
         data={
+            "user_id": operator.operator_id,
+            "name": operator.operator_name,
             "operator_id": operator.operator_id,
             "operator_name": operator.operator_name,
             "role": operator.role,
+            "redirect_path": route_hint,
             "route_hint": route_hint,
             "current_state": state.current_state,
             "active_job_id": state.active_job_id,
+            "produced_count": state.produced_count,
+            "scrap_count": state.scrap_count,
         },
     )
 
@@ -38,19 +51,24 @@ def app_login(payload: LoginRequest, db: Session = Depends(get_db)) -> APIMessag
 @router.post("/login", response_model=APIMessage)
 def operator_login(payload: OperatorLoginRequest, db: Session = Depends(get_db)) -> APIMessage:
     engine = EventEngine(db)
+    login_name = _resolve_login_name(payload.operator_name, payload.name)
     try:
-        operator, state = engine.login_operator(payload.operator_name, payload.pin)
+        operator, state = engine.login_operator(login_name, payload.pin)
     except EventEngineError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     return APIMessage(
         message="Operator logged in",
         machine_id=MACHINE_ID,
         data={
+            "user_id": operator.operator_id,
+            "name": operator.operator_name,
             "operator_id": operator.operator_id,
             "operator_name": operator.operator_name,
             "role": operator.role,
             "current_state": state.current_state,
             "active_job_id": state.active_job_id,
+            "produced_count": state.produced_count,
+            "scrap_count": state.scrap_count,
         },
     )
 

@@ -106,7 +106,8 @@ class APIMessage(BaseModel):
 
 
 class OperatorLoginRequest(BaseModel):
-    operator_name: str
+    operator_name: str | None = None
+    name: str | None = None
     pin: str
 
 
@@ -115,7 +116,8 @@ class OperatorLogoutRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    operator_name: str
+    operator_name: str | None = None
+    name: str | None = None
     pin: str
 
 
@@ -124,22 +126,32 @@ class DashboardSummaryResponse(BaseModel):
     current_state: str
     active_job_id: str | None
     active_job_name: str | None
+    active_job_material: str | None = None
+    active_job_target_quantity: int | None = None
     active_operator_id: str | None
     active_operator_name: str | None
     produced_count: int
     scrap_count: int
+    jobs_completed_today: int = 0
+    parts_produced_today: int = 0
+    scrap_today: int = 0
     last_event_id: int | None
     updated_at: datetime
 
 
 class CompletedJobRow(BaseModel):
     completed_at: datetime
+    completed_time: datetime | None = None
     job_id: str
+    job_name: str | None = None
     part_name: str
     produced_quantity_final: int
+    produced: int | None = None
     scrap_quantity_final: int
+    scrap: int | None = None
     completed_by_operator_id: str | None
     completed_by_operator_name: str | None
+    operator_name: str | None = None
 
 
 class CompletedJobsTodayResponse(BaseModel):
@@ -151,6 +163,7 @@ class CompletedJobsTodayResponse(BaseModel):
 
 
 class TimelineSegment(BaseModel):
+    machine_id: str = MACHINE_ID
     state: str
     start: datetime
     end: datetime
